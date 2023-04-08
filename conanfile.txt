@@ -1,0 +1,6 @@
+[requires]
+glog/0.6.0
+nlohmann_json/3.11.1
+
+[generators]
+cmake
