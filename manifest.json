@@ -1,0 +1,22 @@
+{
+  "file_format_version" : "1.1.0",
+  "layer" : {
+    "name": "VK_LAYER_JNR_dump_logs",
+    "type": "GLOBAL",
+    "library_path": "D:\\Projects\\Vulkan-Dump-Layer\\build\\bin\\jnr_dump.dll",
+    "api_version": "1.0.0",
+    "implementation_version": "1",
+    "description": "Vulkan layer used to dump all Vulkan calls (along with resources)",
+    "functions": {
+      "vkNegotiateLoaderLayerInterfaceVersion": "JnrLayer_NegotiateLoaderLayerInterfaceVersion",
+      "vkGetInstanceProcAddr": "JnrLayer_GetInstanceProcAddr",
+      "vkGetDeviceProcAddr": "JnrLayer_GetDeviceProcAddr"
+    },
+    "enable_environment": {
+      "ENABLE_JNR_DUMP_LAYER": "1"
+    },
+    "disable_environment": {
+      "DISABLE_JNR_DUMP_LAYER": "1"
+    }
+  }
+}

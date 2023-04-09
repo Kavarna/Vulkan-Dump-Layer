@@ -37,4 +37,4 @@ add_definitions(-DAPPLICATION_VERSION="0.0.0")
 add_definitions(-DNOMINMAX)
 add_definitions(-DWIN32_LEAN_AND_MEAN)
 
-add_subdirectory("Vulkan-Dump-Layer")
+add_subdirectory("jnr_dump")
