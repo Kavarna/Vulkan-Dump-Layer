@@ -17,7 +17,10 @@
 std::mutex gLock;
 typedef std::lock_guard<std::mutex> scoped_lock;
 
-static VkInstance gLastInstance = VK_NULL_HANDLE;
+static PFN_vkGetInstanceProcAddr gGIPA = VK_NULL_HANDLE;
+static PFN_vkGetDeviceProcAddr gGDPA = VK_NULL_HANDLE;
+
+static VkDevice* gLastDevice = VK_NULL_HANDLE;
 
 // use the loader's dispatch table pointer as a key for dispatch map lookups
 template<typename DispatchableType>
@@ -95,7 +98,7 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL JnrLayer_CreateInstance(
         void* key = GetKey(pInstance);
         printf("Instance with key = %p initialized\n", key);
         gInstanceDispatch[key] = instanceFunctions;
-        gLastInstance = *pInstance;
+        gGIPA = gpa;
     }
 
     return ret;
@@ -144,6 +147,8 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL JnrLayer_CreateDevice(
     {
         scoped_lock l(gLock);
         gDeviceDispatch[GetKey(pDevice)] = deviceFunctions;
+        gGDPA = gdpa;
+        gLastDevice = pDevice;
     }
 
     return ret;
@@ -156,7 +161,7 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL JnrLayer_BeginCommandBuffer(
     scoped_lock l(gLock);
     gCommandBufferStats[commandBuffer] = CommandBufferStats();
 
-    return gDeviceDispatch[GetKey(commandBuffer)].jnrBeginCommandBuffer(commandBuffer, pBeginInfo);
+    return gDeviceDispatch[GetKey(gLastDevice)].jnrBeginCommandBuffer(commandBuffer, pBeginInfo);
 }
 
 VK_LAYER_EXPORT void VKAPI_CALL JnrLayer_CmdDrawIndexed(
@@ -168,13 +173,12 @@ VK_LAYER_EXPORT void VKAPI_CALL JnrLayer_CmdDrawIndexed(
     uint32_t                                    firstInstance)
 {
     scoped_lock l(gLock);
-    gCommandBufferStats[commandBuffer] = CommandBufferStats();
 
     gCommandBufferStats[commandBuffer].drawCount++;
     gCommandBufferStats[commandBuffer].instanceCount += instanceCount;
-    gCommandBufferStats[commandBuffer].vertCount += instanceCount;
+    gCommandBufferStats[commandBuffer].vertCount += instanceCount * indexCount;
 
-    gDeviceDispatch[GetKey(commandBuffer)].jnrCmdDrawIndexed(commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+    gDeviceDispatch[GetKey(gLastDevice)].jnrCmdDrawIndexed(commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
 VK_LAYER_EXPORT void VKAPI_CALL JnrLayer_CmdDraw(
@@ -185,13 +189,12 @@ VK_LAYER_EXPORT void VKAPI_CALL JnrLayer_CmdDraw(
     uint32_t                                    firstInstance)
 {
     scoped_lock l(gLock);
-    gCommandBufferStats[commandBuffer] = CommandBufferStats();
 
     gCommandBufferStats[commandBuffer].drawCount++;
     gCommandBufferStats[commandBuffer].instanceCount += instanceCount;
-    gCommandBufferStats[commandBuffer].vertCount += instanceCount;
+    gCommandBufferStats[commandBuffer].vertCount += vertexCount * instanceCount;
 
-    gDeviceDispatch[GetKey(commandBuffer)].jnrCmdDraw(commandBuffer, vertexCount, instanceCount, firstVertex, firstVertex);
+    gDeviceDispatch[GetKey(gLastDevice)].jnrCmdDraw(commandBuffer, vertexCount, instanceCount, firstVertex, firstVertex);
 }
 
 
@@ -201,20 +204,24 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL JnrLayer_EndCommandBuffer(
     scoped_lock l(gLock);
 
     auto& s = gCommandBufferStats[commandBuffer];
-    printf("Command buffer %p ended with %u draws, %u instances and %u vertices", commandBuffer, s.drawCount, s.instanceCount, s.vertCount);
+    printf("Command buffer %p ended with %u draws, %u instances and %u vertices\n", commandBuffer, s.drawCount, s.instanceCount, s.vertCount);
 
-    return gDeviceDispatch[GetKey(commandBuffer)].jnrEndCommandBuffer(commandBuffer);
+    return gDeviceDispatch[GetKey(gLastDevice)].jnrEndCommandBuffer(commandBuffer);
 }
 
 /* Get pointer functions */
 VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL JnrLayer_GetDeviceProcAddr(VkDevice device, const char* pName)
 {
-    GETPROCADDR(BeginCommandBuffer)
-    GETPROCADDR(EndCommandBuffer)
-    GETPROCADDR(CmdDraw)
-    GETPROCADDR(CmdDrawIndexed)
+    GETPROCADDR(BeginCommandBuffer);
+    GETPROCADDR(EndCommandBuffer);
+    GETPROCADDR(CmdDraw);
+    GETPROCADDR(CmdDrawIndexed);
 
-    return gDeviceDispatch[GetKey(device)].jnrGetDeviceProcAddr(device, pName);
+    if (auto it = gDeviceDispatch.find(GetKey(device)); it != gDeviceDispatch.end())
+    {
+        return it->second.jnrGetDeviceProcAddr(device, pName);
+    }
+    return gGDPA(device, pName);
 }
 
 VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL JnrLayer_GetInstanceProcAddr(VkInstance instance, const char* pName)
@@ -238,7 +245,7 @@ VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL JnrLayer_GetInstanceProcAddr(VkIns
     {
         return it->second.jnrGetInstanceProcAddr(instance, pName);
     }
-    return vkGetInstanceProcAddr(gLastInstance, pName);
+    return gGIPA(instance, pName);
 }
 
 VK_LAYER_EXPORT VkResult VKAPI_CALL JnrLayer_NegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* pVersionStruct)
